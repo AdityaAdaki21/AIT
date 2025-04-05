@@ -101,38 +101,59 @@ def fetch_logs_from_csv(csv_path):
     """Reads logs from a CSV file and returns them as a list of strings (header + rows)."""
     try:
         df = pd.read_csv(csv_path)
-        
-        # Format the logs for better display and analysis
-        logs = []
-        
-        # Add the header as the first row
-        logs.append(','.join(df.columns.tolist()))
-        
-        # Process each row in the dataframe
-        for _, row in df.iterrows():
-            # Format timestamp (replace T with space for better readability)
-            timestamp = row['timestamp'].replace('T', ' ')
-            
-            # Determine log level based on error and status_code
-            error = int(row['error'])
-            status_code = int(row['status_code'])
-            
-            # Create formatted log entries that include more information
-            if error == 1:
-                level = "ERROR"
-                # Create a detailed error message
-                message = f"[{timestamp}] {row['api_id']} [{row['env']}]: Error detected - Status: {status_code} - Latency: {row['latency_ms']}ms - CPU: {row['simulated_cpu_cost']} - Memory: {row['simulated_memory_mb']}MB - Request: {row['request_id']}"
-            elif status_code >= 400:
-                level = "WARNING"
-                message = f"[{timestamp}] {row['api_id']} [{row['env']}]: High status code - Status: {status_code} - Latency: {row['latency_ms']}ms - Bytes: {row['bytes_transferred']}"
-            else:
-                level = "INFO"
-                message = f"[{timestamp}] {row['api_id']} [{row['env']}]: Request processed - Status: {status_code} - Latency: {row['latency_ms']}ms - Response time: {row['response_time']}ms"
-            
-            logs.append(message)
-            
-        return logs
+        # Convert all columns to string before joining to avoid type issues
+        df = df.astype(str)
+        header = ','.join(df.columns.tolist())
+        log_lines = [header] + df.apply(lambda row: ','.join(row), axis=1).tolist()
+        print(f"Successfully read {len(log_lines)-1} log entries from {csv_path}")
+        return log_lines
+    except FileNotFoundError:
+        print(f"Error: CSV file not found at {csv_path}")
+        return None
     except Exception as e:
-        print(f"Error reading sample logs: {str(e)}")
-        # Fallback to generated logs if file can't be read
-        return generate_sample_logs(300)
+        print(f"Error reading or processing CSV file {csv_path}: {str(e)}")
+        return None
+
+def fetch_logs():
+    """
+    Fetch sample logs. Prioritizes 'api_logs.csv' if it exists,
+    otherwise falls back to generating logs.
+    """
+    csv_filename = 'api_logs.csv'
+    # Construct the path relative to the location of this script file
+    try:
+        script_dir = os.path.dirname(__file__)
+        csv_path = os.path.join(script_dir, csv_filename)
+        print(f"Attempting to load sample logs from: {csv_path}")
+    except NameError:
+         # __file__ is not defined (e.g., running in an interactive environment)
+         print("Warning: Could not determine script directory. Looking for CSV in current working directory.")
+         csv_path = csv_filename # Look in CWD as fallback
+
+    if os.path.exists(csv_path):
+        logs = fetch_logs_from_csv(csv_path)
+        if logs:
+            return logs
+        else:
+            print(f"Failed to read logs from {csv_path}. Falling back to generated logs.")
+    else:
+        print(f"{csv_filename} not found. Generating sample logs instead.")
+
+    # Fallback to generating logs
+    return generate_sample_logs(300)
+
+# Example usage (for testing this script directly)
+# if __name__ == "__main__":
+#     sample_logs = fetch_logs()
+#     if sample_logs:
+#         print(f"Fetched/Generated {len(sample_logs)} log entries.")
+#         # Print first 5 and last 5
+#         for log in sample_logs[:5]:
+#             print(log)
+#         print("...")
+#         for log in sample_logs[-5:]:
+#             print(log)
+#     else:
+#         print("Failed to fetch or generate sample logs.")
+
+# --- END OF FILE logs_backend.py ---
