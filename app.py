@@ -1,3 +1,5 @@
+# --- START OF FILE app.py ---
+
 # app.py
 import streamlit as st
 import pandas as pd
@@ -9,7 +11,7 @@ import io
 import requests
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.cluster import KMeans
-from datetime import datetime
+from datetime import datetime, timedelta # Added timedelta
 import random
 import json
 import threading
@@ -27,7 +29,6 @@ except ImportError:
         st.error("logs_backend.py not found, cannot load sample logs.")
         return []
 
-# Define parse_timestamp here as it's crucial
 # Define parse_timestamp here as it's crucial
 def parse_timestamp(ts_str):
     """Parses timestamp strings into datetime objects, handling common formats."""
@@ -60,7 +61,6 @@ def parse_timestamp(ts_str):
     # Fallback using pandas if specific formats failed
     if pd.isna(dt):
         try:
-            # <<< FIX: Removed deprecated infer_datetime_format >>>
             dt = pd.to_datetime(ts_str.strip(), errors='coerce')
         except Exception:
             dt = pd.NaT # Ensure NaT on any pandas error
@@ -101,9 +101,10 @@ st.markdown(f"""
     .log-text {{ flex-grow: 1; margin-right: 15px; word-break: break-all; /* Wrap long lines */ }}
     .css-1544g2n.e1fqkh3o4 {{ padding: 2rem; border-radius: 0.5rem; margin-bottom: 1rem; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }} /* Card styling */
     .card {{ background-color: {COLORS["card"]}; border-radius: 8px; padding: 20px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); margin-bottom: 20px; }}
-    .metric-card {{ background-color: {COLORS["card"]}; border-radius: 8px; padding: 15px; box-shadow: 0 2px 4px rgba(0,0,0,0.05); text-align: center; }}
+    .metric-card {{ background-color: {COLORS["card"]}; border-radius: 8px; padding: 15px; box-shadow: 0 2px 4px rgba(0,0,0,0.05); text-align: center; height: 120px; /* Ensure cards have same height */ display: flex; flex-direction: column; justify-content: center; }}
     .metric-value {{ font-size: 24px; font-weight: bold; margin: 5px 0; }}
     .metric-label {{ font-size: 14px; color: {COLORS["secondary"]}; }}
+    .metric-sub-label {{ font-size: 12px; color: {COLORS["secondary"]}; }} /* Smaller text for details */
     .status-indicator {{ padding: 2px 8px; border-radius: 10px; font-size: 0.8em; font-weight: bold; display: inline-block; margin-left: 10px; }}
     .status-connected {{ background-color: {COLORS['success']}; color: white; }}
     .status-disconnected {{ background-color: {COLORS['error']}; color: white; }}
@@ -154,8 +155,8 @@ if 'log_page' not in st.session_state: # Initialize log explorer page number
     st.session_state['log_page'] = 1
 if 'log_explorer_filter_hash' not in st.session_state: # Hash for filter changes
      st.session_state['log_explorer_filter_hash'] = None
-if 'last_uploaded_file_id' not in st.session_state: # Track uploaded file
-    st.session_state['last_uploaded_file_id'] = None
+if 'last_uploaded_file_info' not in st.session_state: # Track unique identifier for last uploaded file
+    st.session_state['last_uploaded_file_info'] = None
 if 'sample_logs_loaded' not in st.session_state: # Track if sample logs loaded
     st.session_state['sample_logs_loaded'] = False
 
@@ -225,7 +226,7 @@ def extract_components(_logs_tuple, filename=None): # Use tuple for caching
                      latency_ms = pd.to_numeric(entry['latency'], errors='coerce')
                 elif 'response_time' in entry:
                     rt_secs = pd.to_numeric(entry['response_time'], errors='coerce')
-                    if pd.notna(rt_secs): latency_ms = rt_secs * 1000
+                    if pd.notna(rt_secs): latency_ms = rt_secs * 1000 # Convert seconds to ms
 
                 latency_ms = float(latency_ms) if pd.notna(latency_ms) else 0.0
 
@@ -761,7 +762,7 @@ with st.sidebar:
         st.session_state.pop('clusters_summary', None)
         st.session_state.pop('error_profiles', None)
         st.session_state.pop('log_df_summary', None)
-        st.session_state['last_uploaded_file_id'] = None
+        st.session_state['last_uploaded_file_info'] = None # Use new unique ID logic
         st.session_state['sample_logs_loaded'] = False
         st.session_state['log_page'] = 1 # Reset pagination
         st.session_state['log_explorer_filter_hash'] = None
@@ -775,7 +776,6 @@ with st.sidebar:
     if data_source == "Upload Log File":
         uploaded_file = st.file_uploader("📤 Upload log file (.log, .txt, .csv, .jsonl)", type=["log", "txt", "csv", "jsonl"])
 
-        # --- <<< MODIFIED SECTION START >>> ---
         current_file_info = None
         if uploaded_file is not None:
             # Create a tuple of properties to identify this specific upload
@@ -819,7 +819,6 @@ with st.sidebar:
             except Exception as e:
                 st.error(f"Error reading or parsing uploaded file: {e}")
                 st.session_state['last_uploaded_file_info'] = None
-            # else: File already processed, do nothing on rerun
         elif st.session_state.get('log_df', pd.DataFrame()).empty:
              st.info("Upload a log file to begin analysis.")
         elif uploaded_file is None and st.session_state.get('last_uploaded_file_info') is not None:
@@ -835,12 +834,19 @@ with st.sidebar:
             with st.spinner("Loading sample logs..."):
                 logs = fetch_static_logs()
             if logs:
-                file_name_hint = "sample_logs.csv" # Hint for CSV parser
-                log_df_temp = extract_components(tuple(logs), filename=file_name_hint) # Pass tuple
+                # Infer filename hint for parsing based on first few lines
+                file_name_hint = "sample_logs.log" # Default fallback
+                if isinstance(logs, list) and len(logs) > 1:
+                    if is_csv_file(content=logs[:5]): # Check first 5 lines
+                        file_name_hint = "sample_logs.csv"
+                    elif str(logs[0]).strip().startswith('{'):
+                        file_name_hint = "sample_logs.jsonl"
+
+                log_df_temp = extract_components(tuple(logs), filename=file_name_hint) # Pass tuple and hint
                 if not log_df_temp.empty:
                     st.session_state['log_df'] = log_df_temp
                     st.session_state['sample_logs_loaded'] = True # Mark as loaded
-                    st.success(f"Loaded and parsed {len(log_df_temp)} sample log entries.")
+                    st.success(f"Loaded and parsed {len(log_df_temp)} sample log entries (format inferred: {file_name_hint.split('.')[-1]}).")
                     st.rerun() # Rerun after load
                 else:
                     st.error("Failed to parse sample logs.")
@@ -1062,25 +1068,41 @@ def process_log_queue():
 queue_processed_count = 0
 now = time.time()
 should_rerun = False
+force_rerun_check = False # Flag to force a check even if not connected yet
 
-# Only process queue if streaming or if items remain
-is_streaming_active = st.session_state.get('sse_connection_status') in ["connected", "connecting"]
+# Get current status *before* processing queue
+previous_status_for_check = st.session_state.get('sse_connection_status')
+
+# Process queue if connected/connecting or items remain
+is_streaming_active = previous_status_for_check in ["connected", "connecting"]
 queue_has_items = not st.session_state.get('log_queue', queue.Queue()).empty()
 
 if is_streaming_active or queue_has_items:
-     queue_processed_count = process_log_queue()
+    queue_processed_count = process_log_queue()
 
-     last_update_time = st.session_state.get('last_ui_update_time', 0)
-     force_update_due_to_batch = queue_processed_count >= MIN_LOGS_FOR_UPDATE
-     time_since_last_update = now - last_update_time
+# --- Determine if UI refresh is needed ---
+last_update_time = st.session_state.get('last_ui_update_time', 0)
+time_since_last_update = now - last_update_time
 
-     if (queue_processed_count > 0 and (time_since_last_update > UI_UPDATE_INTERVAL_SECONDS or force_update_due_to_batch)):
-         should_rerun = True
-     elif is_streaming_active and time_since_last_update > UI_UPDATE_INTERVAL_SECONDS:
-         should_rerun = True
+# Reason 1: Logs were processed and interval passed OR batch size reached
+if queue_processed_count > 0:
+    force_update_due_to_batch = queue_processed_count >= MIN_LOGS_FOR_UPDATE
+    if time_since_last_update > UI_UPDATE_INTERVAL_SECONDS or force_update_due_to_batch:
+        should_rerun = True
 
-     if should_rerun:
-         st.session_state['last_ui_update_time'] = now # Record the time of this UI update
+    # elif is_streaming_active and time_since_last_update > UI_UPDATE_INTERVAL_SECONDS:
+    #      should_rerun = True
+
+    # if should_rerun:
+    #     st.session_state['last_ui_update_time'] = now # Record the time of this UI update
+current_status_after_processing = st.session_state.get('sse_connection_status') # Check status *after* potential update by thread
+if not should_rerun and current_status_after_processing in ["connected", "connecting"] and time_since_last_update > UI_UPDATE_INTERVAL_SECONDS:
+    should_rerun = True
+if previous_status_for_check == "connecting" and current_status_after_processing != "connecting":
+     should_rerun = True
+
+if should_rerun:
+    st.session_state['last_ui_update_time'] = now # Record the time of this UI update
 
 
 # --- Main App Area ---
@@ -1117,63 +1139,110 @@ else:
         # --- Calculate Metrics ---
         # @st.cache_data # Could cache this based on log_df hash if needed
         def calculate_dashboard_metrics(_df):
+            metrics = {
+                'total_logs': 0, 'error_count': 0, 'warning_count': 0, 'error_rate': 0,
+                'warning_rate': 0, 'unique_modules': 0, 'avg_latency': 0.0,
+                'log_start_time': None, 'log_end_time': None, 'log_time_span_str': "N/A"
+            }
             if _df.empty:
-                return {'total_logs': 0, 'error_count': 0, 'warning_count': 0, 'error_rate': 0, 'warning_rate': 0, 'unique_modules': 0, 'avg_latency': 0.0}
+                return metrics
 
-            total_logs = len(_df)
-            error_count = int(_df["level"].eq("ERROR").sum()) if "level" in _df.columns else 0
-            warning_count = int(_df["level"].eq("WARNING").sum()) if "level" in _df.columns else 0
-            modules_count = _df["module"].nunique() if "module" in _df.columns else 0
+            metrics['total_logs'] = len(_df)
+            metrics['error_count'] = int(_df["level"].eq("ERROR").sum()) if "level" in _df.columns else 0
+            metrics['warning_count'] = int(_df["level"].eq("WARNING").sum()) if "level" in _df.columns else 0
+            metrics['unique_modules'] = _df["module"].nunique() if "module" in _df.columns else 0
 
-            avg_latency = 0.0
+            if metrics['total_logs'] > 0:
+                metrics['error_rate'] = round(metrics['error_count'] / metrics['total_logs'] * 100, 1)
+                metrics['warning_rate'] = round(metrics['warning_count'] / metrics['total_logs'] * 100, 1)
+
             if "latency" in _df.columns:
                 valid_latency = pd.to_numeric(_df["latency"], errors='coerce').fillna(0)
                 positive_latency = valid_latency[valid_latency > 0]
                 if not positive_latency.empty:
-                    avg_latency = positive_latency.mean()
+                    metrics['avg_latency'] = positive_latency.mean()
 
-            return {
-                'total_logs': total_logs, 'error_count': error_count, 'warning_count': warning_count,
-                'error_rate': round(error_count / total_logs * 100, 1) if total_logs else 0,
-                'warning_rate': round(warning_count / total_logs * 100, 1) if total_logs else 0,
-                'unique_modules': modules_count, 'avg_latency': avg_latency
-            }
+            # Calculate time span
+            if 'datetime' in _df.columns and _df['datetime'].notna().any():
+                valid_times = _df['datetime'].dropna()
+                if not valid_times.empty:
+                    metrics['log_start_time'] = valid_times.min()
+                    metrics['log_end_time'] = valid_times.max()
+                    time_delta = metrics['log_end_time'] - metrics['log_start_time']
+
+                    days = time_delta.days
+                    seconds = time_delta.seconds
+                    hours, remainder = divmod(seconds, 3600)
+                    minutes, seconds = divmod(remainder, 60)
+
+                    if days > 0:
+                        metrics['log_time_span_str'] = f"{days}d {hours}h {minutes}m"
+                    elif hours > 0:
+                        metrics['log_time_span_str'] = f"{hours}h {minutes}m {seconds}s"
+                    elif minutes > 0:
+                        metrics['log_time_span_str'] = f"{minutes}m {seconds}s"
+                    else:
+                        metrics['log_time_span_str'] = f"{seconds}s"
+                else:
+                    metrics['log_time_span_str'] = "No valid times"
+            else:
+                metrics['log_time_span_str'] = "No timestamp data"
+
+            return metrics
 
         log_df_summary = calculate_dashboard_metrics(log_df)
         st.session_state['log_df_summary'] = log_df_summary # Store for potential use in AI Analysis
 
-        # Display Metric Cards
-        col1, col2, col3, col4 = st.columns(4)
+        # Display Metric Cards - Use 2 rows of 3 columns
+        col1, col2, col3 = st.columns(3)
         with col1:
+             st.markdown(f"""
+            <div class="metric-card" style="border-left: 5px solid {COLORS['primary']}">
+                <div class="metric-label">Total Logs</div>
+                <div class="metric-value" style="color: {COLORS['primary']}">{log_df_summary.get('total_logs', 0):,}</div>
+                <div class="metric-sub-label">Entries Processed</div>
+            </div>
+            """, unsafe_allow_html=True)
+        with col2:
             st.markdown(f"""
             <div class="metric-card" style="border-left: 5px solid {COLORS['error']}">
                 <div class="metric-label">Errors</div>
                 <div class="metric-value" style="color: {COLORS['error']}">{log_df_summary.get('error_count', 0)}</div>
-                <div class="metric-label">{log_df_summary.get('error_rate', 0)}% of logs</div>
-            </div>
-            """, unsafe_allow_html=True)
-        with col2:
-             st.markdown(f"""
-            <div class="metric-card" style="border-left: 5px solid {COLORS['warning']}">
-                <div class="metric-label">Warnings</div>
-                <div class="metric-value" style="color: {COLORS['warning']}">{log_df_summary.get('warning_count', 0)}</div>
-                <div class="metric-label">{log_df_summary.get('warning_rate', 0)}% of logs</div>
+                <div class="metric-sub-label">{log_df_summary.get('error_rate', 0)}% of total logs</div>
             </div>
             """, unsafe_allow_html=True)
         with col3:
              st.markdown(f"""
-            <div class="metric-card" style="border-left: 5px solid {COLORS['primary']}">
-                <div class="metric-label">Unique Modules</div>
-                <div class="metric-value" style="color: {COLORS['primary']}">{log_df_summary.get('unique_modules', 0)}</div>
-                <div class="metric-label">Involved</div>
+            <div class="metric-card" style="border-left: 5px solid {COLORS['warning']}">
+                <div class="metric-label">Warnings</div>
+                <div class="metric-value" style="color: {COLORS['warning']}">{log_df_summary.get('warning_count', 0)}</div>
+                <div class="metric-sub-label">{log_df_summary.get('warning_rate', 0)}% of total logs</div>
             </div>
             """, unsafe_allow_html=True)
+
+        col4, col5, col6 = st.columns(3)
         with col4:
-             st.markdown(f"""
+            st.markdown(f"""
             <div class="metric-card" style="border-left: 5px solid {COLORS['info']}">
+                <div class="metric-label">System Up Time</div>
+                <div class="metric-value" style="color: {COLORS['info']}; font-size: 20px;">{log_df_summary.get('log_time_span_str', 'N/A')}</div>
+                <div class="metric-sub-label">Duration covered by logs</div>
+            </div>
+            """, unsafe_allow_html=True)
+        with col5:
+             st.markdown(f"""
+            <div class="metric-card" style="border-left: 5px solid {COLORS['secondary']}">
+                <div class="metric-label">Unique Modules</div>
+                <div class="metric-value" style="color: {COLORS['secondary']}">{log_df_summary.get('unique_modules', 0)}</div>
+                <div class="metric-sub-label">Sources reporting logs</div>
+            </div>
+            """, unsafe_allow_html=True)
+        with col6:
+             st.markdown(f"""
+            <div class="metric-card" style="border-left: 5px solid {COLORS['success']}">
                 <div class="metric-label">Avg Latency</div>
-                <div class="metric-value" style="color: {COLORS['info']}">{log_df_summary.get('avg_latency', 0.0):.1f} ms</div>
-                <div class="metric-label">Avg Response Time</div>
+                <div class="metric-value" style="color: {COLORS['success']}">{log_df_summary.get('avg_latency', 0.0):.1f} ms</div>
+                <div class="metric-sub-label">Avg duration (if available)</div>
             </div>
             """, unsafe_allow_html=True)
 
@@ -1298,8 +1367,11 @@ else:
                 max_value=total_pages,
                 step=1,
                 value=validated_page_number, # Pass the validated value here
-                key="log_page"               # Widget uses this key to read/write state
+                key="log_page",               # Widget uses this key to read/write state
+                label_visibility="collapsed", # Hide label, show only number input and controls
             )
+            st.caption(f"Page {page_number_input} of {total_pages} ({total_rows} total entries)")
+
 
             # Use the value returned by the widget for calculations *in this run*.
             start_idx = (page_number_input - 1) * page_size
@@ -1869,7 +1941,7 @@ else:
 st.markdown("---")
 st.markdown("""
 <div style="text-align: center; margin-top: 20px; padding-top: 15px; border-top: 1px solid #e6e6e6;">
-    <p style="color: #6c757d; font-size: 0.9em;">AI-Powered Log Analyzer v1.3 (Smoothed UI)</p>
+    <p style="color: #6c757d; font-size: 0.9em;">AI-Powered Log Analyzer v1.4 (Dashboard Update)</p>
 </div>
 """, unsafe_allow_html=True)
 
@@ -1878,3 +1950,4 @@ st.markdown("""
 if should_rerun:
      time.sleep(0.05) # Short delay allows state updates to settle
      st.rerun()
+# --- END OF FILE app.py ---
