@@ -1,1 +1,4 @@
 AIT/
+__pycache__/
+.env
+.streamlit/
