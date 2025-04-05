@@ -216,7 +216,7 @@ def parse_timestamp(ts_str):
 # --- Function to query Ollama API ---
 # --- Enhanced LLM Analysis Functions ---
 
-def perform_holistic_analysis(log_df, clusters, use_ollama=True, ollama_model="llama3.2.2:3b", ollama_url=None, remote_model=None, api_key=None):
+def perform_holistic_analysis(log_df, clusters, use_ollama=True, ollama_model="llama3.2:3b", ollama_url=None, remote_model=None, api_key=None):
     """
     Perform holistic analysis across all log clusters
     """
