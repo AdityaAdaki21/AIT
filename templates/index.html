@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Log Analyzer</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <!-- Include Plotly.js -->
+    <script src='https://cdn.plot.ly/plotly-latest.min.js'></script>
+</head>
+<body>
+    <div class="container">
+        <!-- Sidebar -->
+        <aside class="sidebar">
+            <h3>📁 Data Source</h3>
+            <div class="radio-group horizontal">
+                <label><input type="radio" name="dataSource" value="stream" checked> Real-time Stream</label>
+                <label><input type="radio" name="dataSource" value="upload"> Upload File</label>
+                <label><input type="radio" name="dataSource" value="sample"> Sample Logs</label>
+            </div>
+
+            <div id="stream-settings">
+                <h4>📡 Real-time Settings</h4>
+                <label for="sse-url">SSE Log Stream URL:</label>
+                <input type="text" id="sse-url" value="http://localhost:8000/stream-logs">
+                 <div class="status-container">
+                    Status: <span id="sse-status" class="status-indicator status-disconnected">Disconnected</span>
+                 </div>
+                 <div id="sse-error" class="error-message"></div>
+                <button id="sse-connect-button">Connect</button>
+                <p>Received logs: <span id="log-count-stream">0</span></p>
+                <label for="max-stream-logs">Max logs to keep:</label>
+                <input type="number" id="max-stream-logs" value="5000" min="100" step="100">
+            </div>
+
+            <div id="upload-settings" style="display: none;">
+                <h4>📤 Upload Log File</h4>
+                <input type="file" id="log-file-input" accept=".log,.txt,.csv,.jsonl">
+                <p id="upload-status"></p>
+            </div>
+
+             <div id="sample-settings" style="display: none;">
+                <h4>📄 Sample Logs</h4>
+                <button id="load-sample-button">Load Sample Logs</button>
+                 <p id="sample-status"></p>
+            </div>
+
+            <hr>
+            <h3>⚙️ Analysis Settings</h3>
+            <label for="n-clusters">Number of log clusters:</label>
+            <input type="range" id="n-clusters" min="2" max="15" value="4">
+            <span id="n-clusters-value">4</span>
+            <small id="clustering-info">Requires log data.</small>
+
+            <hr>
+            <h3>🤖 LLM Settings</h3>
+            <div class="radio-group horizontal">
+                <label><input type="radio" name="llmProvider" value="ollama"> Ollama</label>
+                <label><input type="radio" name="llmProvider" value="openrouter" checked> OpenRouter</label>
+            </div>
+            <div id="ollama-settings" style="display: none;">
+                <label for="ollama-url">Ollama API URL:</label>
+                <input type="text" id="ollama-url" value="http://localhost:11434/api/generate">
+                 <label for="ollama-model">Ollama Model:</label>
+                <input type="text" id="ollama-model" value="llama3">
+                <!-- Add model dropdown population via JS if API endpoint exists -->
+            </div>
+            <div id="openrouter-settings">
+                <label for="openrouter-key">OpenRouter API Key:</label>
+                <input type="password" id="openrouter-key" placeholder="sk-or-v1-...">
+                 <label for="openrouter-model">OpenRouter Model:</label>
+                 <select id="openrouter-model">
+                     <option value="mistralai/mistral-7b-instruct:free">Mistral 7B Instruct (Free)</option>
+                     <option value="meta-llama/llama-3.1-8b-instruct:free">Llama 3.1 8B Instruct (Free)</option>
+                     <option value="google/gemini-flash-1.5">Gemini 1.5 Flash</option>
+                     <option value="anthropic/claude-3.5-sonnet">Claude 3.5 Sonnet</option>
+                     <option value="anthropic/claude-3-haiku">Claude 3 Haiku</option>
+                 </select>
+            </div>
+
+             <hr>
+            <h3>🎨 Visualization</h3>
+            <label for="chart-theme">Chart Theme:</label>
+            <select id="chart-theme">
+                <option value="plotly_white">Plotly White</option>
+                <option value="plotly">Plotly</option>
+                <option value="plotly_dark">Plotly Dark</option>
+                <option value="ggplot2">ggplot2</option>
+                <option value="seaborn">Seaborn</option>
+                <option value="simple_white">Simple White</option>
+            </select>
+
+            <hr>
+            <h3>📊 About</h3>
+            <p class="about-text">
+                Analyze logs from files or streams. Features dashboard, log explorer, AI clustering & analysis, advanced visualizations.
+            </p>
+        </aside>
+
+        <!-- Main Content -->
+        <main class="main-content">
+            <header class="app-header">
+                <h1><span class="header-icon">🧠</span> AI-Powered Log Analyzer</h1>
+                <p>Intelligent log analysis: real-time stream, clustering, visualizations, and LLM insights</p>
+            </header>
+
+            <!-- Tabs -->
+            <div class="tabs">
+                <button class="tab-link active" data-tab="dashboard">📊 Dashboard</button>
+                <button class="tab-link" data-tab="explorer">🔍 Log Explorer</button>
+                <button class="tab-link" data-tab="ai-analysis">🧠 AI Analysis</button>
+                <button class="tab-link" data-tab="advanced-viz">📈 Advanced Viz</button>
+            </div>
+
+            <!-- Tab Content -->
+            <div id="dashboard" class="tab-content active">
+                <h3>📈 Key Metrics</h3>
+                <div class="metrics-grid">
+                    <div class="metric-card">
+                        <div class="metric-label">Total Logs</div>
+                        <div class="metric-value" id="metric-total-logs">0</div>
+                        <div class="metric-sub-label">Entries Processed</div>
+                    </div>
+                     <div class="metric-card">
+                        <div class="metric-label">Errors</div>
+                        <div class="metric-value" id="metric-error-count">0</div>
+                        <div class="metric-sub-label"><span id="metric-error-rate">0</span>% of total</div>
+                    </div>
+                     <div class="metric-card">
+                        <div class="metric-label">Warnings</div>
+                        <div class="metric-value" id="metric-warning-count">0</div>
+                        <div class="metric-sub-label"><span id="metric-warning-rate">0</span>% of total</div>
+                    </div>
+                     <div class="metric-card">
+                        <div class="metric-label">System Up Time</div>
+                        <div class="metric-value metric-value-small" id="metric-time-span">N/A</div>
+                        <div class="metric-sub-label">Duration covered</div>
+                    </div>
+                     <div class="metric-card">
+                        <div class="metric-label">Unique Modules</div>
+                        <div class="metric-value" id="metric-unique-modules">0</div>
+                        <div class="metric-sub-label">Sources reporting</div>
+                    </div>
+                    <div class="metric-card">
+                        <div class="metric-label">Avg Latency</div>
+                        <div class="metric-value" id="metric-avg-latency">0.0 ms</div>
+                        <div class="metric-sub-label">Avg duration</div>
+                    </div>
+                </div>
+                <hr>
+                <div class="charts-grid">
+                    <div class="chart-container">
+                        <h5>Log Level Distribution</h5>
+                        <div id="chart-level-pie" class="plotly-chart"></div>
+                    </div>
+                    <div class="chart-container">
+                         <h5>Top Modules by Error Count</h5>
+                        <div id="chart-top-error-modules" class="plotly-chart"></div>
+                    </div>
+                </div>
+                 <div class="chart-container full-width">
+                        <h5>Log Timeline (by Hour/Minute)</h5>
+                        <div id="chart-log-timeline" class="plotly-chart"></div>
+                 </div>
+            </div>
+
+            <div id="explorer" class="tab-content">
+                <h3>🔍 Filter & Explore Logs</h3>
+                 <div class="filter-controls">
+                     <select id="filter-level"><option value="All">All Levels</option></select>
+                     <select id="filter-module"><option value="All">All Modules</option></select>
+                     <input type="text" id="filter-keyword" placeholder="Search Keyword...">
+                     <select id="filter-status"><option value="All">All Status</option></select>
+                     <select id="filter-env"><option value="All">All Envs</option></select>
+                     <button id="apply-filters-button">Apply Filters</button>
+                 </div>
+                 <h4>📝 Log Entries (<span id="explorer-log-count">0</span> matching)</h4>
+                 <div class="pagination">
+                      <button id="page-prev" disabled>< Prev</button>
+                      <span>Page <input type="number" id="page-current" value="1" min="1"> of <span id="page-total">1</span></span>
+                      <button id="page-next">Next ></button>
+                 </div>
+                 <div id="log-display-area">
+                     <!-- Log entries will be injected here by JS -->
+                     <div class="log-entry-card info-card">
+                         <div class="log-text">[Timestamp] [INFO] [Module] Sample log message...</div>
+                         <button class="explain-button" data-log-index="0">Explain</button>
+                     </div>
+                     <div class="explanation-box" id="explanation-0" style="display: none;"></div>
+                 </div>
+            </div>
+
+            <div id="ai-analysis" class="tab-content">
+                <h3>🧠 AI-Powered Log Analysis</h3>
+                <p>Cluster similar logs to identify patterns and get targeted AI insights.</p>
+                <button id="run-analysis-button" disabled>🔄 Run / Update Clustering & Analysis</button>
+                <div id="analysis-status" class="status-message"></div>
+                <div id="analysis-results" style="margin-top: 20px;">
+                    <!-- AI Analysis results tabs/content will go here -->
+                     <div class="tabs-nested">
+                        <button class="tab-link-nested active" data-tab-nested="cluster-explorer">Cluster Explorer</button>
+                        <button class="tab-link-nested" data-tab-nested="holistic-analysis">Holistic Analysis</button>
+                        <!-- Add more nested tabs as needed -->
+                    </div>
+                    <div id="cluster-explorer" class="tab-content-nested active">
+                        <h4>Cluster Explorer</h4>
+                        <select id="cluster-selector"><option>-- Select Cluster --</option></select>
+                        <div id="cluster-details">
+                             <!-- Details populated by JS -->
+                        </div>
+                        <button id="analyze-cluster-summary-button" style="display: none;">Analyze Cluster Summary with AI</button>
+                        <div id="cluster-analysis-output" class="ai-output"></div>
+                    </div>
+                     <div id="holistic-analysis" class="tab-content-nested">
+                        <h4>Holistic System Analysis</h4>
+                         <div class="charts-grid">
+                             <div id="chart-cluster-distribution" class="plotly-chart"></div>
+                             <div id="chart-cluster-error-rate" class="plotly-chart"></div>
+                         </div>
+                        <button id="run-holistic-analysis-button">Generate Holistic Analysis with AI</button>
+                        <div id="holistic-analysis-output" class="ai-output"></div>
+                    </div>
+                    <!-- Add divs for Comparative, Temporal analysis -->
+                </div>
+            </div>
+
+            <div id="advanced-viz" class="tab-content">
+                <h3>📈 Advanced Log Data Visualizations</h3>
+                 <select id="viz-type-selector">
+                    <option value="">-- Select Visualization --</option>
+                    <!-- Options populated by JS based on available data -->
+                 </select>
+                 <div id="advanced-viz-area" style="margin-top: 20px;">
+                     <!-- Advanced charts will be rendered here -->
+                 </div>
+            </div>
+
+            <footer>
+                AI-Powered Log Analyzer v1.4 (Flask/JS Conversion)
+            </footer>
+        </main>
+    </div>
+
+    <script src="{{ url_for('static', filename='js/main.js') }}"></script>
+</body>
+</html>

@@ -2,3 +2,4 @@ AIT/
 __pycache__/
 .env
 .streamlit/
+week_logs.csv

@@ -8,3 +8,4 @@ seaborn
 requests
 streamlit
 wordcloud
+Flask-Cors
