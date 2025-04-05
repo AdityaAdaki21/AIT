@@ -1,3 +1,5 @@
+# --- START OF FILE log_stream_api.py ---
+
 import uvicorn  # Import uvicorn for running the app
 from fastapi import FastAPI, Request
 from fastapi.responses import StreamingResponse
@@ -12,7 +14,7 @@ import time
 app = FastAPI(
     title="Real-time Log Simulator API",
     description="Streams simulated logs in JSON format via Server-Sent Events (SSE).",
-    version="1.0.0"
+    version="1.1.0" # Version bump
 )
 
 # --- CORS Middleware ---
@@ -47,7 +49,9 @@ STATUS_WEIGHTS = [60]*len(STATUS_CODES_SUCCESS) + [5]*len(STATUS_CODES_CLIENT_ER
 # --- Log Generation Function ---
 def generate_log_entry() -> dict:
     """Generates a single simulated log entry as a dictionary."""
-    timestamp = datetime.now().isoformat(timespec='seconds')
+    # Use microsecond precision for more realistic timestamps if needed, but stick to seconds for compatibility with example
+    # timestamp = datetime.now().isoformat(timespec='microseconds')
+    timestamp = datetime.now().isoformat(timespec='seconds') # Match example format
     log_level = random.choices(LOG_LEVELS, weights=LEVEL_WEIGHTS, k=1)[0]
     component = random.choices(COMPONENTS, weights=COMPONENT_WEIGHTS, k=1)[0]
     log_code = random.choice(LOG_CODES)
@@ -57,7 +61,8 @@ def generate_log_entry() -> dict:
     if log_level == "ERROR":
         status_code = random.choice(STATUS_CODES_SERVER_ERR + STATUS_CODES_CLIENT_ERR)
     elif log_level == "WARNING":
-        status_code = random.choice(STATUS_CODES_CLIENT_ERR + STATUS_CODES_SUCCESS) # Can be success but with a warning
+        # Warnings can occur even on success (e.g., high latency) or client errors
+        status_code = random.choice(STATUS_CODES_CLIENT_ERR + STATUS_CODES_SUCCESS + [200, 200]) # Skew warnings towards client errors/success
     else: # INFO or DEBUG
         status_code = random.choices(ALL_STATUS_CODES, weights=STATUS_WEIGHTS, k=1)[0]
 
@@ -83,21 +88,25 @@ def generate_log_entry() -> dict:
     elif "AUTH" in log_code:
         message = f"Authentication attempt {log_code.split('_')[1].lower()} for user {random.randint(1000, 2000)}."
     elif log_level == "ERROR":
-        message = f"Error condition {status_code} encountered in {component}: {random.choice(['Timeout', 'Connection Refused', 'Resource Limit Exceeded'])}."
+        message = f"Error condition {status_code} encountered in {component}: {random.choice(['Timeout', 'Connection Refused', 'Resource Limit Exceeded', 'Null Pointer Exception'])}."
+    elif log_level == "WARNING" and status_code >= 400 :
+         message = f"Potential issue detected during {log_code} in {component}: Status {status_code}."
+    elif log_level == "WARNING" and response_time > 0.5 :
+         message = f"High response time ({response_time:.3f}s) observed for {log_code} in {component}."
+
 
     log_entry = {
-        "timestamp": timestamp,
-        "log_level": log_level,
-        "components": component, # Match the key from the example
-        "log_code": log_code,
-        "status_code": status_code,
-        "process_id": process_id,
-        "message": message,
-        "response_time": response_time, # Match the key from the example
-        "cpu_usage": cpu_usage,
-        # Add other fields if needed, e.g., user_id, request_id
-        "request_id": f"req-{random.randint(100000, 999999)}",
-        "environment": random.choice(["production", "staging", "development"])
+        "timestamp": timestamp,         # String, ISO format seconds precision
+        "log_level": log_level,         # String (INFO, WARNING, ERROR, DEBUG)
+        "components": component,        # String (service name) -> Mapped to 'module' in app
+        "log_code": log_code,           # String (internal code)
+        "status_code": status_code,     # Integer (HTTP status or similar)
+        "process_id": process_id,       # Integer
+        "message": message,             # String (main log message)
+        "response_time": response_time, # Float (seconds) -> Converted to ms latency in app
+        "cpu_usage": cpu_usage,         # Float (percentage or similar)
+        "request_id": f"req-{random.randint(100000, 999999)}", # String
+        "environment": random.choice(["production", "staging", "development"]) # String -> Mapped to 'env' in app
     }
     return log_entry
 
@@ -106,13 +115,16 @@ def generate_log_entry() -> dict:
 async def stream_logs(request: Request):
     """
     Endpoint to stream simulated logs using Server-Sent Events (SSE).
+    Sends logs in the format: `data: {"key": "value", ...}\n\n`
     """
     async def event_generator():
+        log_counter = 0
+        start_time = time.time()
         try:
             while True:
-                # Check if client is still connected
+                # Check if client is still connected before generating/sending
                 if await request.is_disconnected():
-                    print("Client disconnected.")
+                    print(f"Client disconnected after {log_counter} logs sent in {time.time() - start_time:.2f} seconds.")
                     break
 
                 # Generate a log entry
@@ -125,12 +137,13 @@ async def stream_logs(request: Request):
                 sse_formatted_log = f"data: {json_log}\n\n"
 
                 yield sse_formatted_log
+                log_counter += 1
 
-                # Simulate varying time between logs (e.g., 10ms to 1.5 seconds)
+                # Simulate varying time between logs (e.g., 10ms to 200ms)
                 await asyncio.sleep(random.uniform(0.01, 0.2))
 
         except asyncio.CancelledError:
-            print("Log streaming task cancelled.")
+            print(f"Log streaming task cancelled after {log_counter} logs sent.")
         except Exception as e:
             print(f"Error during log streaming: {e}")
         finally:
@@ -156,4 +169,6 @@ if __name__ == "__main__":
     # Run the FastAPI app using uvicorn
     # You can change host and port as needed
     # reload=True is useful for development
+    print("Starting Log Simulator API on http://0.0.0.0:8000")
     uvicorn.run("log_stream_api:app", host="0.0.0.0", port=8000, reload=True)
+# --- END OF FILE log_stream_api.py ---
