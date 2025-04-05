@@ -1,3 +1,5 @@
+# --- START OF FILE logs_backend.py ---
+
 # logs_backend.py
 import random
 from datetime import datetime, timedelta
@@ -9,7 +11,7 @@ def generate_sample_logs(num_logs=200):
     log_levels = ["INFO", "WARNING", "ERROR"]
     modules = ["auth-service", "api-gateway", "database", "cache", "user-service", "payment-processor"]
     environments = ["production", "development"]
-    
+
     api_endpoints = [
         "/api/v1/users",
         "/api/v1/auth/login",
@@ -17,10 +19,10 @@ def generate_sample_logs(num_logs=200):
         "/api/v1/orders",
         "/api/v1/payment"
     ]
-    
+
     status_codes = [200, 201, 400, 401, 403, 404, 500, 503]
     status_weights = [70, 10, 5, 5, 2, 3, 3, 2]  # Weighted probabilities
-    
+
     error_messages = [
         "Connection timeout",
         "Invalid authentication token",
@@ -31,33 +33,33 @@ def generate_sample_logs(num_logs=200):
         "Service unavailable",
         "Rate limit exceeded"
     ]
-    
+
     # Create start time (24 hours ago)
     end_time = datetime.now()
     start_time = end_time - timedelta(hours=24)
-    
+
     logs = []
-    
+
     for _ in range(num_logs):
         # Generate timestamp
         log_time = start_time + timedelta(seconds=random.randint(0, int((end_time - start_time).total_seconds())))
-        timestamp = log_time.strftime("%Y-%m-%d %H:%M:%S")
-        
+        timestamp = log_time.strftime("%Y-%m-%d %H:%M:%S.%f")[:-3] # Add milliseconds
+
         # Select module and environment
         module = random.choice(modules)
         env = random.choice(environments)
-        
+
         # Select API endpoint
         endpoint = random.choice(api_endpoints)
-        
+
         # Generate latency (usually low, occasionally high)
         latency = random.randint(10, 100)
         if random.random() < 0.1:  # 10% chance of high latency
             latency = random.randint(500, 2000)
-        
+
         # Generate status code weighted by frequency
         status_code = random.choices(status_codes, weights=status_weights, k=1)[0]
-        
+
         # Determine log level based on status code
         if status_code >= 500:
             level = "ERROR"
@@ -65,94 +67,93 @@ def generate_sample_logs(num_logs=200):
             level = random.choices(["WARNING", "ERROR"], weights=[70, 30], k=1)[0]
         else:
             level = random.choices(["INFO", "WARNING"], weights=[95, 5], k=1)[0]
-        
+
         # Generate message content
         if level == "ERROR":
-            message = f"[{timestamp}] {module} [{env}]: {random.choice(error_messages)} on {endpoint} - Status: {status_code} - Latency: {latency}ms"
+            message = f"Failed request {random.randint(1000,9999)} for {endpoint}: {random.choice(error_messages)}"
         elif level == "WARNING":
-            message = f"[{timestamp}] {module} [{env}]: High latency detected on {endpoint} - Status: {status_code} - Latency: {latency}ms"
+            message = f"Potential issue on {endpoint}: High latency detected ({latency}ms)" if latency > 500 else f"Client error scenario on {endpoint}"
         else:
-            message = f"[{timestamp}] {module} [{env}]: Request processed for {endpoint} - Status: {status_code} - Latency: {latency}ms"
-        
-        logs.append(message)
-    
-    # Add some patterns for clustering
+            message = f"Request {random.randint(1000,9999)} processed successfully for {endpoint}"
+
+        # Format as a more structured line resembling common log formats
+        log_line = f"{timestamp} [{level}] [{module}] [{env}] {message} - status={status_code} latency={latency}ms request_id=req-{random.randint(10000, 99999)}"
+        logs.append(log_line)
+
+    # Add some specific patterns for clustering
     for _ in range(20):
         log_time = start_time + timedelta(seconds=random.randint(0, int((end_time - start_time).total_seconds())))
         timestamp = log_time.strftime("%Y-%m-%d %H:%M:%S")
-        logs.append(f"[{timestamp}] database [production]: Connection pool exhausted - reconnecting - Pool size: {random.randint(10, 50)}")
-    
+        logs.append(f"{timestamp} [ERROR] [database] [production] Connection pool exhausted - reconnecting - Pool size: {random.randint(10, 50)}")
+
     for _ in range(15):
         log_time = start_time + timedelta(seconds=random.randint(0, int((end_time - start_time).total_seconds())))
         timestamp = log_time.strftime("%Y-%m-%d %H:%M:%S")
-        logs.append(f"[{timestamp}] auth-service [production]: Rate limiting applied for IP {random.randint(1, 255)}.{random.randint(1, 255)}.{random.randint(1, 255)}.{random.randint(1, 255)} - Too many login attempts")
-    
-    # Add some CSV-style logs
-    csv_logs = ["timestamp,error,api_id,status_code,latency_ms,env"]
-    
-    for _ in range(50):
-        log_time = start_time + timedelta(seconds=random.randint(0, int((end_time - start_time).total_seconds())))
-        timestamp = log_time.strftime("%Y-%m-%d %H:%M:%S")
-        api_id = random.choice(["auth", "users", "products", "orders", "payments"])
-        error = 1 if random.random() < 0.2 else 0  # 20% chance of error
-        status = random.choices(status_codes, weights=status_weights, k=1)[0]
-        latency = random.randint(10, 1000)
-        env = "prod" if random.random() < 0.8 else "dev"
-        
-        csv_logs.append(f"{timestamp},{error},{api_id},{status},{latency},{env}")
-    
+        logs.append(f"{timestamp} [WARN] [auth-service] [production] Rate limiting applied for IP {random.randint(1, 255)}.{random.randint(1, 255)}.{random.randint(1, 255)}.{random.randint(1, 255)} - Too many login attempts")
+
     # Shuffle the logs
     random.shuffle(logs)
-    
-    # Add CSV logs at the end for demonstration
-    logs.extend(csv_logs)
-    
+
     return logs
 
-# def fetch_logs():
-#     """Fetch sample logs for demonstration"""
-#     return generate_sample_logs(300)
+
+def fetch_logs_from_csv(csv_path):
+    """Reads logs from a CSV file and returns them as a list of strings (header + rows)."""
+    try:
+        df = pd.read_csv(csv_path)
+        # Convert all columns to string before joining to avoid type issues
+        df = df.astype(str)
+        header = ','.join(df.columns.tolist())
+        log_lines = [header] + df.apply(lambda row: ','.join(row), axis=1).tolist()
+        print(f"Successfully read {len(log_lines)-1} log entries from {csv_path}")
+        return log_lines
+    except FileNotFoundError:
+        print(f"Error: CSV file not found at {csv_path}")
+        return None
+    except Exception as e:
+        print(f"Error reading or processing CSV file {csv_path}: {str(e)}")
+        return None
 
 def fetch_logs():
-    """Fetch sample logs from api_logs.csv file"""
+    """
+    Fetch sample logs. Prioritizes 'api_logs.csv' if it exists,
+    otherwise falls back to generating logs.
+    """
+    csv_filename = 'api_logs.csv'
+    # Construct the path relative to the location of this script file
     try:
-        # Read the CSV file
-        csv_path = os.path.join(os.path.dirname(__file__), 'api_logs.csv')
-        
-        # Use pandas to read the CSV file directly
-        df = pd.read_csv(csv_path)
-        
-        # Format the logs for better display and analysis
-        logs = []
-        
-        # Add the header as the first row
-        logs.append(','.join(df.columns.tolist()))
-        
-        # Process each row in the dataframe
-        for _, row in df.iterrows():
-            # Format timestamp (replace T with space for better readability)
-            timestamp = row['timestamp'].replace('T', ' ')
-            
-            # Determine log level based on error and status_code
-            error = int(row['error'])
-            status_code = int(row['status_code'])
-            
-            # Create formatted log entries that include more information
-            if error == 1:
-                level = "ERROR"
-                # Create a detailed error message
-                message = f"[{timestamp}] {row['api_id']} [{row['env']}]: Error detected - Status: {status_code} - Latency: {row['latency_ms']}ms - CPU: {row['simulated_cpu_cost']} - Memory: {row['simulated_memory_mb']}MB - Request: {row['request_id']}"
-            elif status_code >= 400:
-                level = "WARNING"
-                message = f"[{timestamp}] {row['api_id']} [{row['env']}]: High status code - Status: {status_code} - Latency: {row['latency_ms']}ms - Bytes: {row['bytes_transferred']}"
-            else:
-                level = "INFO"
-                message = f"[{timestamp}] {row['api_id']} [{row['env']}]: Request processed - Status: {status_code} - Latency: {row['latency_ms']}ms - Response time: {row['response_time']}ms"
-            
-            logs.append(message)
-            
-        return logs
-    except Exception as e:
-        print(f"Error reading sample logs: {str(e)}")
-        # Fallback to generated logs if file can't be read
-        return generate_sample_logs(300)
+        script_dir = os.path.dirname(__file__)
+        csv_path = os.path.join(script_dir, csv_filename)
+        print(f"Attempting to load sample logs from: {csv_path}")
+    except NameError:
+         # __file__ is not defined (e.g., running in an interactive environment)
+         print("Warning: Could not determine script directory. Looking for CSV in current working directory.")
+         csv_path = csv_filename # Look in CWD as fallback
+
+    if os.path.exists(csv_path):
+        logs = fetch_logs_from_csv(csv_path)
+        if logs:
+            return logs
+        else:
+            print(f"Failed to read logs from {csv_path}. Falling back to generated logs.")
+    else:
+        print(f"{csv_filename} not found. Generating sample logs instead.")
+
+    # Fallback to generating logs
+    return generate_sample_logs(300)
+
+# Example usage (for testing this script directly)
+# if __name__ == "__main__":
+#     sample_logs = fetch_logs()
+#     if sample_logs:
+#         print(f"Fetched/Generated {len(sample_logs)} log entries.")
+#         # Print first 5 and last 5
+#         for log in sample_logs[:5]:
+#             print(log)
+#         print("...")
+#         for log in sample_logs[-5:]:
+#             print(log)
+#     else:
+#         print("Failed to fetch or generate sample logs.")
+
+# --- END OF FILE logs_backend.py ---
